@@ -1,6 +1,7 @@
 """Implementação simples da camada de enlace."""
 
 import logging
+from typing import cast
 
 from net.base import Frame, Packet
 from net.model import MACAddress, VirtualIPAddress
@@ -96,13 +97,13 @@ class SimpleLink(Link):
             )
             return None
 
-        packet_dict = frame_dict["data"]
+        packet_dict = cast(dict[str, object], frame_dict["data"])
 
         packet = Packet(
-            src_vip=packet_dict["src_vip"],
-            dst_vip=packet_dict["dst_vip"],
-            ttl=packet_dict["ttl"],
-            segmento_dict=packet_dict["data"],
+            src_vip=cast(str, packet_dict["src_vip"]),
+            dst_vip=cast(str, packet_dict["dst_vip"]),
+            ttl=cast(int, packet_dict["ttl"]),
+            segmento_dict=cast(dict[str, object], packet_dict["data"]),
         )
 
         logger.debug(

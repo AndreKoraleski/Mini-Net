@@ -1,27 +1,9 @@
 from socket import socket
-from typing import TypedDict
 
 PROBABILIDADE_PERDA: float
 PROBABILIDADE_CORRUPCAO: float
 LATENCIA_MIN: float
 LATENCIA_MAX: float
-
-class SegmentoDict(TypedDict):
-    seq_num: int
-    is_ack: bool
-    payload: dict[str, object]
-
-class PacoteDict(TypedDict):
-    src_vip: str
-    dst_vip: str
-    ttl: int
-    data: SegmentoDict
-
-class QuadroDict(TypedDict):
-    src_mac: str
-    dst_mac: str
-    data: PacoteDict
-    fcs: int
 
 class Segmento:
     seq_num: int
@@ -34,40 +16,40 @@ class Segmento:
         is_ack: bool,
         payload: dict[str, object],
     ) -> None: ...
-    def to_dict(self) -> SegmentoDict: ...
+    def to_dict(self) -> dict[str, object]: ...
 
 class Pacote:
     src_vip: str
     dst_vip: str
     ttl: int
-    data: SegmentoDict
+    data: dict[str, object]
 
     def __init__(
         self,
         src_vip: str,
         dst_vip: str,
         ttl: int,
-        segmento_dict: SegmentoDict,
+        segmento_dict: dict[str, object],
     ) -> None: ...
-    def to_dict(self) -> PacoteDict: ...
+    def to_dict(self) -> dict[str, object]: ...
 
 class Quadro:
     src_mac: str
     dst_mac: str
-    data: PacoteDict
+    data: dict[str, object]
     fcs: int
 
     def __init__(
         self,
         src_mac: str,
         dst_mac: str,
-        pacote_dict: PacoteDict,
+        pacote_dict: dict[str, object],
     ) -> None: ...
     def serializar(self) -> bytes: ...
     @staticmethod
     def deserializar(
         bytes_recebidos: bytes,
-    ) -> tuple[QuadroDict | None, bool]: ...
+    ) -> tuple[dict[str, object] | None, bool]: ...
 
 def enviar_pela_rede_ruidosa(
     socket_udp: socket,
