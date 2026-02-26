@@ -9,7 +9,7 @@ defeituoso.
 ┌─────────────┐
 │  Aplicação  │  <- A implementar
 ├─────────────┤
-│  Transporte │  <- A implementar
+│  Transporte │  <- Quarto Implementado
 ├─────────────┤
 │    Rede     │  <- Terceiro Implementado
 ├─────────────┤
@@ -81,20 +81,30 @@ apontam apenas para o Roteador. O Roteador conhece todos.
 
 ### 4 — Camada de Rede · `HostNetwork` / `RouterNetwork`
 
-Duas implementações sobre `Pacote` (professor), sem base compartilhada:
+- **`HostNetwork`** — hosts comuns. `send()` consulta a tabela de roteamento e
+  delega ao enlace. `receive()` bloqueia até um pacote endereçado ao VIP local
+  e devolve o `Segment` interno.
 
-- **`HostNetwork`** — para Alice, Bob e Servidor. `send()` consulta a tabela
-  de roteamento, cria o `Packet` com TTL inicial e delega ao enlace.
-  `receive()` bloqueia até que um pacote endereçado ao VIP local chegue e
-  devolve o `Segment` interno.
+- **`RouterNetwork`** — roteador. `receive()` decrementa o TTL, descarta se
+  expirado e reencaminha via enlace. Sempre retorna `None`.
 
-- **`RouterNetwork`** — para o Roteador. `receive()` bloqueia diretamente
-  em `link.receive()`, decrementa o TTL, descarta se expirado e encaminha
-  via enlace. Sempre retorna `None` — roteadores não entregam segmentos à
-  aplicação. Threading é responsabilidade da aplicação, não do protocolo.
+`build_network_layer(name)` escolhe a implementação correta e compõe as camadas
+inferiores.
 
-`build_network_layer(name)` escolhe a implementação correta e compõe enlace e
-física internamente.
+### 5 — Camada de Transporte · `ReliableConnection` / `ReliableTransport`
+
+- **`ReliableConnection`** — Stop-and-Wait para um par de endereços. `send()`
+  fragmenta em chunks de MSS e retransmite até receber ACK. `receive()`
+  reagrupa até `more=False`. `close()` envia FIN unilateral e aguarda ACK.
+  `dispatch()` é chamado pelo transport para rotear segmentos às filas internas.
+
+- **`ReliableTransport`** — multiplexador com thread daemon que lê
+  continuamente da rede e despacha para a conexão correta pela chave
+  `(remote_vip, remote_port, local_port)`. `connect()` abre uma conexão
+  de saída; `accept()` bloqueia até uma entrada ser detectada.
+
+`build_transport_layer(name)` monta a pilha completa e retorna o transport já
+ativo. Não aceita o roteador.
 
 ## Instalação
 

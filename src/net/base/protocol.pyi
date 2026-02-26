@@ -6,7 +6,7 @@ LATENCIA_MIN: float
 LATENCIA_MAX: float
 
 class Segmento:
-    seq_num: int
+    sequence_number: int
     is_ack: bool
     payload: dict[str, object]
 

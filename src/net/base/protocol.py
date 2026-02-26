@@ -35,13 +35,19 @@ class Segmento:
     """  # noqa: D205, D212
 
     def __init__(self, seq_num, is_ack, payload):  # noqa: D107
-        self.seq_num = seq_num  # Número de sequência (0 ou 1 para Stop-and-Wait)
+        self.sequence_number = (
+            seq_num  # Número de sequência (0 ou 1 para Stop-and-Wait)
+        )
         self.is_ack = is_ack  # Booleano: É um ACK ou são dados?
         self.payload = payload  # O JSON da aplicação (dicionário)
 
     def to_dict(self):
         """Converte o objeto em dicionário para serialização."""
-        return {"seq_num": self.seq_num, "is_ack": self.is_ack, "payload": self.payload}
+        return {
+            "seq_num": self.sequence_number,
+            "is_ack": self.is_ack,
+            "payload": self.payload,
+        }
 
 
 # =================================================================

@@ -17,6 +17,7 @@ from net.model.address import (
 from net.stack.link.impl import SimpleLink
 from net.stack.network.impl import HostNetwork, RouterNetwork
 from net.stack.physical.impl import UDPSimulated
+from net.stack.transport.impl import ReliableTransport
 
 # --- Client A(lice) ---
 CLIENT_A_NAME = "Alice"
@@ -194,3 +195,28 @@ def build_network_layer(name: str) -> HostNetwork | RouterNetwork:
     if name == ROUTER_NAME:
         return RouterNetwork(link, vaddress.vip, routing_table)
     return HostNetwork(link, vaddress.vip, routing_table)
+
+
+def build_transport_layer(name: str) -> ReliableTransport:
+    """Cria a camada de transporte completa para o host informado.
+
+    Cria a camada de rede subjacente (enlace e física inclusos) e devolve
+    um ReliableTransport com o loop de despacho já ativo.
+
+    Args:
+        name (str): Nome do host conforme definido neste módulo
+            (ex.: `CLIENT_A_NAME`, `SERVER_NAME`).
+
+    Returns:
+        ReliableTransport: Camada de transporte pronta para uso.
+
+    Raises:
+        KeyError: Se `name` não existir no registro de hosts.
+        ValueError: Se `name` for o roteador (roteadores não têm transporte).
+    """
+    if name == ROUTER_NAME:
+        raise ValueError("O roteador não possui camada de transporte.")
+
+    _, _, vaddress, _ = _get_host(name)
+    network = build_network_layer(name)
+    return ReliableTransport(network, vaddress)
