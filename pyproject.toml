@@ -17,6 +17,9 @@ authors = [
 
 dependencies = []
 
+[project.scripts]
+router = "net.application.router:main"
+
 # --- Hatch  ---
 [tool.hatch.version]
 path = "src/net/__init__.py"
