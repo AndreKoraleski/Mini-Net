@@ -2,8 +2,6 @@
 
 import dataclasses
 import logging
-import queue
-import threading
 
 from net.base import Packet, Segment
 from net.model import VirtualIPAddress
@@ -30,12 +28,11 @@ class RouterStats:
 class RouterNetwork(Network):
     """Camada de rede para roteadores.
 
-    Uma thread dedicada bloqueia em `link.receive()` e enfileira pacotes
-    recebidos. `receive()` consome da fila, decrementa o TTL, consulta a
-    tabela de roteamento e encaminha via enlace.
+    Recebe pacotes do enlace, decrementa o TTL, consulta a tabela de roteamento e
+    encaminha via enlace.
 
     Como roteadores não são destinos finais, `receive()` sempre retorna
-    `None`. Logo, o encaminhamento é um efeito colateral da chamada.
+    `None`. O encaminhamento é um efeito colateral da chamada.
     """
 
     def __init__(
@@ -46,8 +43,6 @@ class RouterNetwork(Network):
     ) -> None:
         """Inicializa a camada de rede para roteador.
 
-        Inicia automaticamente a thread de recepção.
-
         Args:
             link (Link): A camada de enlace subjacente.
             local_vip (VirtualIPAddress): O endereço virtual local do roteador.
@@ -57,23 +52,9 @@ class RouterNetwork(Network):
         self.link = link
         self.local_vip = local_vip
         self.routing_table = routing_table
-        self._packet_queue: queue.Queue[Packet] = queue.Queue()
         self._forwarded = 0
         self._dropped_ttl = 0
         self._dropped_unknown = 0
-
-        threading.Thread(
-            target=self._receive_into_queue,
-            name=f"router-recv-{local_vip}",
-            daemon=True,
-        ).start()
-
-    def _receive_into_queue(self) -> None:
-        """Bloqueia no enlace e enfileira pacotes recebidos."""
-        while True:
-            packet = self.link.receive()
-            if packet is not None:
-                self._packet_queue.put(packet)
 
     @property
     def stats(self) -> RouterStats:
@@ -122,14 +103,18 @@ class RouterNetwork(Network):
         self.link.send(packet, next_hop)
 
     def receive(self) -> Segment | None:
-        """Processa o próximo pacote da fila e o encaminha.
+        """Recebe um pacote do enlace, decrementa o TTL e encaminha.
 
-        Bloqueia até que haja um pacote na fila interna.
+        Bloqueia até que o enlace entregue um pacote. Descarta se o TTL
+        expirou ou o destino é desconhecido.
 
         Returns:
             None: Roteadores não entregam segmentos à camada de aplicação.
         """
-        packet = self._packet_queue.get()
+        packet = self.link.receive()
+
+        if packet is None:
+            return None
 
         if packet.ttl <= 0:
             logger.warning(
@@ -138,7 +123,6 @@ class RouterNetwork(Network):
                 packet.dst_vip,
             )
             self._dropped_ttl += 1
-            self._packet_queue.task_done()
             return None
 
         packet.ttl -= 1
@@ -152,7 +136,6 @@ class RouterNetwork(Network):
                 packet.dst_vip,
             )
             self._dropped_unknown += 1
-            self._packet_queue.task_done()
             return None
 
         logger.debug(
@@ -165,5 +148,4 @@ class RouterNetwork(Network):
 
         self.link.send(packet, next_hop)
         self._forwarded += 1
-        self._packet_queue.task_done()
         return None

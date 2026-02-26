@@ -88,10 +88,10 @@ Duas implementações sobre `Pacote` (professor), sem base compartilhada:
   `receive()` bloqueia até que um pacote endereçado ao VIP local chegue e
   devolve o `Segment` interno.
 
-- **`RouterNetwork`** — para o Roteador. Uma thread daemon bloqueia em
-  `link.receive()` e enfileira os pacotes recebidos. `receive()` consome da
-  fila, decrementa o TTL, descarta se expirado e encaminha via enlace.
-  Sempre retorna `None` — roteadores não entregam segmentos à aplicação.
+- **`RouterNetwork`** — para o Roteador. `receive()` bloqueia diretamente
+  em `link.receive()`, decrementa o TTL, descarta se expirado e encaminha
+  via enlace. Sempre retorna `None` — roteadores não entregam segmentos à
+  aplicação. Threading é responsabilidade da aplicação, não do protocolo.
 
 `build_network_layer(name)` escolhe a implementação correta e compõe enlace e
 física internamente.
