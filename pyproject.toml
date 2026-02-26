@@ -19,6 +19,9 @@ dependencies = []
 
 [project.scripts]
 router = "net.application.router:main"
+server = "net.application.server:main"
+alice  = "net.application.client:main_alice"
+bob    = "net.application.client:main_bob"
 
 # --- Hatch  ---
 [tool.hatch.version]

@@ -7,7 +7,7 @@ defeituoso.
 
 ```
 ┌─────────────┐
-│  Aplicação  │  <- A implementar
+│  Aplicação  │  <- Último Implementado
 ├─────────────┤
 │  Transporte │  <- Quarto Implementado
 ├─────────────┤
@@ -106,6 +106,36 @@ inferiores.
 `build_transport_layer(name)` monta a pilha completa e retorna o transport já
 ativo. Não aceita o roteador.
 
+### 6 — Camada de Aplicação · `Server` / `Client`
+
+- **`Server`** — servidor centralizado que aceita conexões de clientes,
+  gerencia a lista de usuários online e retransmite mensagens entre pares. Ao
+  conectar, cada cliente recebe automaticamente a lista de usuários já online.
+  Suporta **shutdown gracioso**: ao receber `Ctrl+C`, transmite `__SHUTDOWN__`
+  para todos os clientes e aguarda cada um fechar sua conexão (FIN) antes de
+  encerrar, sem descartar mensagens já enfileiradas.
+
+- **`Client`** — conecta ao servidor assim que é iniciado. A UI sobe
+  imediatamente enquanto a conexão TCP é estabelecida em background. Ao receber `__SHUTDOWN__`, fecha a conexão sozinho. Suporta duas interfaces intercambiáveis via protocolo `UI`:
+  - **`ConsoleUI`** — stdin/stdout com comando `/file <caminho>` para envio de
+    arquivos.
+  - **`GUI`** — interface Tkinter com área de chat, lista de usuários online e
+    barra de status.
+
+  A seleção da UI é automática: sem TTY ou com `--gui`, usa a GUI.
+
+- **`PrioritySender`** — elimina HOL blocking causado por transferências de
+  arquivo. Envolve uma `Connection` e despacha de uma `PriorityQueue` em thread
+  separada. Mensagens de sistema (prioridade 0) e texto (1) ultrapassam arquivos
+  (2) na fila, mantendo o chat responsivo durante uploads.
+
+**Protocolo de mensagens (JSON):**
+
+Todas as mensagens são serializadas em JSON com os campos `type`, `sender`,
+`recipient` e `timestamp`. Mensagens de texto incluem `content`. Mensagens de
+arquivo adicionam `name`, `mime`, `size` e `data` (Base64). Mensagens de
+sistema são notificações internas sem remetente.
+
 ## Instalação
 
 Clone o repositório e instale o pacote em modo editável.
@@ -126,14 +156,53 @@ pip install -e .
 
 ## Como executar
 
-**Com uv:**
+Inicie os componentes na seguinte ordem:
+
+**1. Roteador** (necessário para comunicação entre hosts):
 
 ```bash
 uv run router
+# Com ambiente ativo: router
 ```
 
-**Com pip (ambiente ativo):**
+**2. Servidor** (centraliza as conexões):
 
 ```bash
-router
+uv run server
+# Com ambiente ativo: server
 ```
+
+**3. Clientes** (Alice e Bob):
+
+```bash
+# Alice - interface automática (console se TTY disponível)
+uv run alice
+# Com ambiente ativo: alice
+
+# Alice - forçar interface gráfica
+uv run alice -- --gui
+# Com ambiente ativo: alice --gui
+
+# Bob - interface automática
+uv run bob
+# Com ambiente ativo: bob
+
+# Bob - forçar interface gráfica
+uv run bob -- --gui
+# Com ambiente ativo: bob --gui
+```
+
+**Comandos no console:**
+
+- Digite texto e pressione Enter para enviar mensagem
+- `/file <caminho>` para enviar arquivo
+- `Ctrl+C` para sair
+
+**Interface gráfica:**
+
+- Digite na caixa de texto e pressione Enter ou clique "Enviar"
+- Botão "Arquivo" para selecionar e enviar arquivo
+- Lista de usuários online atualizada em tempo real
+- Barra de status mostra conexão
+
+Todos os arquivos recebidos são salvos em `downloads/<destinatário>/`.
