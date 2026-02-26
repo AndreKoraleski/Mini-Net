@@ -55,18 +55,18 @@ class UDPSimulated(Physical):
             source_mac = frame_dict.get("src_mac", "?")
 
         except Exception as e:
-            logger.error("[FÍSICA] Erro ao decodificar quadro para envio: %s", e)
+            logger.error("[FISICA] Quadro para envio inválido: %s", e)
             return
 
         destination_address = self.mac_table.get(destination_mac)
 
         if destination_address is None:
-            logger.error("[FÍSICA] MAC de destino desconhecido: %s", destination_mac)
+            logger.error("[FISICA] MAC desconhecido na tabela: %s", destination_mac)
             return
 
         destination_str = f"{destination_address.ip}:{destination_address.port}"
         logger.debug(
-            "[FÍSICA] %s -> %s  (src_mac=%s dst_mac=%s  %d bytes)",
+            "[FISICA] %s -> %s  Quadro enviado. (src_mac=%s  dst_mac=%s  tamanho=%d bytes)",  # noqa: E501
             self._local_address,
             destination_str,
             source_mac,
@@ -89,7 +89,7 @@ class UDPSimulated(Physical):
         try:
             data, (src_host, src_port) = self.sock.recvfrom(_UDP_BUFFER_SIZE)
             logger.debug(
-                "[FÍSICA] %s:%d -> %s  (%d bytes)",
+                "[FISICA] %s:%d -> %s  Quadro recebido. (tamanho=%d bytes)",
                 src_host,
                 src_port,
                 self._local_address,
@@ -98,5 +98,5 @@ class UDPSimulated(Physical):
             return data
 
         except Exception as e:
-            logger.error("[FÍSICA] Erro ao receber dados: %s", e)
+            logger.error("[FISICA] Erro ao receber dados: %s", e)
             return b""

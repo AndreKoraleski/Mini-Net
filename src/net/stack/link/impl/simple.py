@@ -49,7 +49,7 @@ class SimpleLink(Link):
 
         if destination_mac is None:
             logger.error(
-                "[ENLACE] %s -> ?  ARP falhou: VIP desconhecido: %s",
+                "[ENLACE] %s -> ?  VIP desconhecido na tabela ARP: %s",
                 self.local_mac,
                 destination,
             )
@@ -62,11 +62,11 @@ class SimpleLink(Link):
         )
 
         logger.debug(
-            "[ENLACE] %s -> %s  (vip_dst=%s  src_vip=%s)",
+            "[ENLACE] %s -> %s  Quadro enviado. (vip_origem=%s  vip_destino=%s)",
             self.local_mac,
             destination_mac,
-            destination,
             packet.src_vip,
+            destination,
         )
 
         self.physical.send(frame.serializar())
@@ -84,13 +84,13 @@ class SimpleLink(Link):
 
         if frame_dict is None:
             logger.warning(
-                "[ENLACE] ? -> %s  quadro descartado: dados nulos.", self.local_mac
+                "[ENLACE] ? -> %s  Quadro descartado: dados nulos.", self.local_mac
             )
             return None
 
         if not valid:
             logger.warning(
-                "[ENLACE] %s -> %s  quadro descartado: erro de integridade (CRC).",
+                "[ENLACE] %s -> %s  Quadro descartado: erro de integridade (CRC).",
                 frame_dict.get("src_mac", "?"),
                 self.local_mac,
             )
@@ -106,7 +106,7 @@ class SimpleLink(Link):
         )
 
         logger.debug(
-            "[ENLACE] %s → %s  (src_vip=%s dst_vip=%s)",
+            "[ENLACE] %s -> %s  Quadro recebido. (vip_origem=%s  vip_destino=%s)",
             frame_dict["src_mac"],
             self.local_mac,
             packet.src_vip,

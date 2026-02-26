@@ -15,6 +15,7 @@ from net.model.address import (
     VirtualIPAddress,
 )
 from net.stack.link.impl import SimpleLink
+from net.stack.network.impl import HostNetwork, RouterNetwork
 from net.stack.physical.impl import UDPSimulated
 
 # --- Client A(lice) ---
@@ -74,7 +75,29 @@ _ARP_TABLE_ROUTER: dict[VirtualIPAddress, MACAddress] = {
     SERVER_VIP: SERVER_MAC,
 }
 
-# --- Registro de hosts Nome -> (MAC, Address físico, VirtualAddress, tabela ARP) ---
+# --- Tabelas de roteamento (VIP destino -> VIP próximo salto) para a camada de rede ---
+# Hosts encaminham todo tráfego ao Roteador como único gateway.
+_ROUTING_TABLE_HOSTS: dict[VirtualIPAddress, VirtualIPAddress] = {
+    CLIENT_A_VIP: ROUTER_VIP,
+    CLIENT_B_VIP: ROUTER_VIP,
+    SERVER_VIP: ROUTER_VIP,
+}
+
+# O Roteador roteia diretamente para cada host.
+_ROUTING_TABLE_ROUTER: dict[VirtualIPAddress, VirtualIPAddress] = {
+    CLIENT_A_VIP: CLIENT_A_VIP,
+    CLIENT_B_VIP: CLIENT_B_VIP,
+    SERVER_VIP: SERVER_VIP,
+}
+
+_ROUTING_REGISTRY: dict[str, dict[VirtualIPAddress, VirtualIPAddress]] = {
+    CLIENT_A_NAME: _ROUTING_TABLE_HOSTS,
+    CLIENT_B_NAME: _ROUTING_TABLE_HOSTS,
+    SERVER_NAME: _ROUTING_TABLE_HOSTS,
+    ROUTER_NAME: _ROUTING_TABLE_ROUTER,
+}
+
+
 HOST_REGISTRY: dict[
     str, tuple[MACAddress, Address, VirtualAddress, dict[VirtualIPAddress, MACAddress]]
 ] = {
@@ -146,3 +169,28 @@ def build_link_layer(name: str) -> SimpleLink:
     mac, _, _, arp_table = _get_host(name)
     physical = build_physical_layer(name)
     return SimpleLink(physical, mac, arp_table)
+
+
+def build_network_layer(name: str) -> HostNetwork | RouterNetwork:
+    """Cria a camada de rede completa para o host informado.
+
+    Devolve RouterNetwork para o roteador e HostNetwork
+    para os demais hosts. Em ambos os casos a camada de enlace subjacente
+    (e a física) é construída internamente.
+
+    Args:
+        name (str): Nome do host conforme definido neste módulo
+            (ex.: `CLIENT_A_NAME`, `ROUTER_NAME`).
+
+    Returns:
+        HostNetwork | RouterNetwork: Camada de rede pronta para uso.
+
+    Raises:
+        KeyError: Se `name` não existir no registro de hosts.
+    """
+    _, _, vaddress, _ = _get_host(name)
+    routing_table = _ROUTING_REGISTRY[name]
+    link = build_link_layer(name)
+    if name == ROUTER_NAME:
+        return RouterNetwork(link, vaddress.vip, routing_table)
+    return HostNetwork(link, vaddress.vip, routing_table)
