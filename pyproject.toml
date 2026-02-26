@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "a-mini-net"
+dynamic = ["version"]
+description = "Simulação de pilha de protocolos de rede (Física, Enlace, Rede, Transporte e Aplicação) sobre UDP, implementada como projeto integrador da disciplina de Redes de Computadores."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.14"
+
+authors = [
+    { name = "Andre Koraleski", email = "andre.andre2@discente.ufg.br" },
+    { name = "Henrick Souza", email = "henrick.henrick@discente.ufg.br"}
+]
+
+dependencies = []
+
+# --- Hatch  ---
+[tool.hatch.version]
+path = "src/net/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/net"]
+artifacts = ["src/net/py.typed"]
+
+# --- Mypy ---
+[tool.mypy]
+python_version = "3.14"
+strict = true
+mypy_path = ["src"]
+explicit_package_bases = true
+ignore_missing_imports = true
+warn_unused_ignores = true
+show_error_codes = true
+pretty = true
+
+# --- Ruff ---
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "N", "SIM", "PERF", "B", "D", "RUF"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+    "pre-commit>=4.5.1",
+    "ruff>=0.15.2",
+]

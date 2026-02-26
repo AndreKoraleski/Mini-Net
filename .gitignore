@@ -1,0 +1,10 @@
+# Arquivos gerados pelo Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Arquivos gerados por IDE
+.vscode/

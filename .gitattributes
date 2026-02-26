@@ -1,0 +1,10 @@
+# Arquivos Fonte
+*.py     text diff=python
+*.pyi    text diff=python
+
+# Arquivos Binários
+*.db     binary
+*.pkl    binary
+*.pyc    binary export-ignore
+*.pyo    binary export-ignore
+*.pyd    binary
