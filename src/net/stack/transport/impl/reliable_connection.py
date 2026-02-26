@@ -41,7 +41,7 @@ class ReliableConnection(Connection):
         self.send_sequence = 0
         self.receive_sequence = 0
         self.ack_queue: queue.Queue[Segment] = queue.Queue()
-        self.data_queue: queue.Queue[Segment] = queue.Queue()
+        self.data_queue: queue.Queue[Segment | None] = queue.Queue()
 
     def send(self, data: bytes) -> None:
         """Envia dados de forma confiável, fragmentando em MSS e aguardando ACKs.
@@ -70,12 +70,15 @@ class ReliableConnection(Connection):
         logger.debug("[TRANSPORTE] %s  Aguardando dados...", self.local_address)
         buffer = bytearray()
 
-        while True:
-            segment = self._receive_chunk()
-            buffer += base64.b64decode(str(segment.payload["data"]))
+        try:
+            while True:
+                segment = self._receive_chunk()
+                buffer += base64.b64decode(str(segment.payload["data"]))
 
-            if not segment.payload.get("more", False):
-                break
+                if not segment.payload.get("more", False):
+                    break
+        except EOFError:
+            return None
 
         logger.debug(
             "[TRANSPORTE] %s  %d byte(s) recebidos.",
@@ -228,6 +231,7 @@ class ReliableConnection(Connection):
                 "[TRANSPORTE] %s  FIN recebido. Encerrando conexão.",
                 self.local_address,
             )
+            self.data_queue.put(None)
             if self.on_close is not None:
                 self.on_close()
             return
@@ -255,7 +259,12 @@ class ReliableConnection(Connection):
             Segment: O segmento recebido com o número de sequência esperado.
         """
         while True:
-            segment = self.data_queue.get()
+            item = self.data_queue.get()
+
+            if item is None:
+                raise EOFError
+
+            segment = item
 
             if segment.sequence_number != self.receive_sequence:
                 logger.debug(
