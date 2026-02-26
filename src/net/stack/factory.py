@@ -5,6 +5,7 @@ a camada de transporte.
 """
 
 import socket
+from pathlib import Path
 
 from net.model.address import (
     Address,
@@ -45,6 +46,19 @@ SERVER_VIP = VirtualIPAddress("HOST_S")
 SERVER_PORT = Port(10002)
 SERVER_ADDRESS = Address(SERVER_IP, SERVER_PORT)
 SERVER_VADDRESS = VirtualAddress(SERVER_VIP, SERVER_PORT)
+
+# --- Downloads ---
+# Pasta raiz onde os arquivos recebidos são salvos. Subpastas por destinatário.
+DOWNLOADS_DIR: Path = Path(__file__).parents[3] / "downloads"
+
+
+def ensure_downloads_dir() -> None:
+    """Cria DOWNLOADS_DIR e um .gitignore com '*' se ainda não existirem."""
+    DOWNLOADS_DIR.mkdir(exist_ok=True)
+    gitignore = DOWNLOADS_DIR / ".gitignore"
+    if not gitignore.exists():
+        gitignore.write_text("*\n")
+
 
 # --- Roteador ---
 ROUTER_NAME = "Roteador"

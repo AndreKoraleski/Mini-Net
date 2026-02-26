@@ -2,6 +2,7 @@
 
 import logging
 
+from net.logging import setup_logging
 from net.stack.factory import ROUTER_NAME, build_network_layer
 from net.stack.network.impl.router import RouterNetwork
 
@@ -55,8 +56,5 @@ class Router:
 
 def main() -> None:
     """Ponto de entrada para execução do roteador."""
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s  %(levelname)-8s  %(message)s",
-    )
+    setup_logging(level=logging.DEBUG)
     Router().run()

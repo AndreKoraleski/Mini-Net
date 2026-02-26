@@ -119,10 +119,32 @@ class ReliableTransport(Transport):
             conn.dispatch(segment)
             return
 
-        # Segmento inesperado sem conexão registrada - descartar ACKs e FINs
-        if segment.is_ack or segment.payload.get("fin"):
+        # Segmento inesperado sem conexão registrada
+        if segment.is_ack:
             logger.debug(
                 "[TRANSPORTE] %s  Segmento descartado (sem conexão). (src=%s:%d)",
+                self.local_address,
+                remote_vip,
+                remote_port,
+            )
+            return
+
+        if segment.payload.get("fin"):
+            # ACK original pode ter sido perdido, re-enviar.
+            ack = Segment(
+                seq_num=segment.sequence_number,
+                is_ack=True,
+                payload={
+                    "src_ip": self.local_address.vip,
+                    "src_port": self.local_address.port,
+                    "dst_port": remote_port,
+                    "data": "",
+                    "more": False,
+                },
+            )
+            self.network.send(ack, remote_vip)
+            logger.debug(
+                "[TRANSPORTE] %s  Re-ACK de FIN enviado. (src=%s:%d)",
                 self.local_address,
                 remote_vip,
                 remote_port,

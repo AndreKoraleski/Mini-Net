@@ -14,6 +14,7 @@ from net.stack.transport import TIMEOUT, Connection
 logger = logging.getLogger(__name__)
 
 MSS: int = 1024
+MAX_FIN_RETRIES: int = 8
 
 
 class ReliableConnection(Connection):
@@ -102,7 +103,7 @@ class ReliableConnection(Connection):
             },
         )
 
-        while True:
+        for attempt in range(1, MAX_FIN_RETRIES + 1):
             self.network.send(fin, self.remote_address.vip)
             logger.debug(
                 "[TRANSPORTE] %s -> %s  FIN enviado. (seq=%d)",
@@ -130,10 +131,21 @@ class ReliableConnection(Connection):
                     return
 
             logger.warning(
-                "[TRANSPORTE] %s -> %s  Timeout aguardando ACK do FIN, retransmitindo.",
+                "[TRANSPORTE] %s -> %s  Timeout aguardando ACK do FIN. (%d/%d)",
                 self.local_address,
                 self.remote_address,
+                attempt,
+                MAX_FIN_RETRIES,
             )
+
+        logger.warning(
+            "[TRANSPORTE] %s -> %s  FIN sem ACK após %d tentativas.",
+            self.local_address,
+            self.remote_address,
+            MAX_FIN_RETRIES,
+        )
+        if self.on_close is not None:
+            self.on_close()
 
     def _send_ack(self, ack_sequence: int) -> None:
         """Envia um ACK para o número de sequência especificado.
