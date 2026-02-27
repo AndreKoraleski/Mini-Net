@@ -8,3 +8,6 @@ wheels/
 
 # Arquivos gerados por IDE
 .vscode/
+
+# UV
+uv.lock

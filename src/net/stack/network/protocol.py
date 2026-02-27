@@ -8,7 +8,7 @@ from typing import Protocol, runtime_checkable
 from net.base import Segment
 from net.model import VirtualIPAddress
 
-DEFAULT_TTL: int = 64
+DEFAULT_TTL: int = 4
 
 
 @runtime_checkable

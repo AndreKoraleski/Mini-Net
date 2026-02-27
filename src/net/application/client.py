@@ -12,7 +12,6 @@ from pathlib import Path
 
 from net.application.chat import decode
 from net.application.chat.file import FileMessage
-from net.application.chat.system import SystemMessage
 from net.application.chat.text import TextMessage
 from net.application.ui import UI
 from net.application.ui.impl import GUI, ConsoleUI
@@ -58,8 +57,6 @@ class Client:
             transport = build_transport_layer(self.name)
             self.connection = transport.connect(SERVER_VADDRESS)
             threading.Thread(target=self._receive_loop, daemon=True).start()
-            # Solicita lista de usuários online ao servidor
-            self.connection.send(SystemMessage("__REQUEST_ONLINE__").encode())
             self.ui.show_connected(self.name)
 
         threading.Thread(target=_do_connect, daemon=True).start()
@@ -118,13 +115,6 @@ class Client:
             except ValueError as exc:
                 logger.warning("Mensagem inválida: %s", exc)
                 continue
-
-            # Servidor sinalizou shutdown - Fecha a conexão e encerra o loop
-            if isinstance(message, SystemMessage) and message.content == "__SHUTDOWN__":
-                logger.info("[CHAT] Servidor encerrando, fechando conexão…")
-                self._close_connection()
-                self.ui.show_server_disconnected()
-                break
 
             self.ui.show_message(message, datetime.now())
 

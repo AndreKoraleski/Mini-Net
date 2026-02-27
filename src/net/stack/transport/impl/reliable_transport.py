@@ -49,6 +49,8 @@ class ReliableTransport(Transport):
     def connect(self, destination: VirtualAddress) -> Connection:
         """Estabelece uma conexão com o endereço virtual de destino.
 
+        Realiza o handshake de 3 vias (SYN / SYN-ACK / ACK) antes de retornar.
+
         Args:
             destination (VirtualAddress): Endereço virtual do destino.
 
@@ -69,6 +71,8 @@ class ReliableTransport(Transport):
         with self.lock:
             self.connections[key] = connection
 
+        connection.connect()
+
         logger.debug(
             "[TRANSPORTE] %s -> %s  Conexão estabelecida.",
             self.local_address,
@@ -79,10 +83,13 @@ class ReliableTransport(Transport):
     def accept(self) -> Connection:
         """Bloqueia até receber uma conexão de entrada e a retorna.
 
+        Conclui o handshake de 3 vias (SYN-ACK / ACK) antes de retornar.
+
         Returns:
             Connection: A conexão aceita.
         """
         connection = self.accept_queue.get()
+        connection.accept()
         logger.debug(
             "[TRANSPORTE] %s  Conexão aceita de %s.",
             self.local_address,
@@ -123,15 +130,6 @@ class ReliableTransport(Transport):
             return
 
         # Segmento inesperado sem conexão registrada
-        if segment.is_ack:
-            logger.debug(
-                "[TRANSPORTE] %s  Segmento descartado (sem conexão). (src=%s:%d)",
-                self.local_address,
-                remote_vip,
-                remote_port,
-            )
-            return
-
         if segment.payload.get("fin"):
             # ACK original pode ter sido perdido, re-enviar.
             ack = Segment(
@@ -154,7 +152,17 @@ class ReliableTransport(Transport):
             )
             return
 
-        # Primeiro segmento de uma nova conexão de entrada
+        if not segment.payload.get("syn") or segment.is_ack:
+            # Segmento de dados ou ACK avulso sem conexão registrada - descartar.
+            logger.debug(
+                "[TRANSPORTE] %s  Segmento descartado (sem conexão). (src=%s:%d)",
+                self.local_address,
+                remote_vip,
+                remote_port,
+            )
+            return
+
+        # Primeiro SYN de uma nova conexão de entrada
         remote_address = VirtualAddress(remote_vip, remote_port)
         new_connection = ReliableConnection(
             network=self.network,

@@ -148,14 +148,43 @@ inferiores.
 [`transport/protocol.py`](src/net/stack/transport/protocol.py) · [`transport/impl/reliable_connection.py`](src/net/stack/transport/impl/reliable_connection.py) · [`transport/impl/reliable_transport.py`](src/net/stack/transport/impl/reliable_transport.py)
 
 - **`ReliableConnection`** — Stop-and-Wait para um par de endereços. `send()`
-  fragmenta em chunks de MSS e retransmite até receber ACK. `receive()`
-  reagrupa até `more=False`. `close()` envia FIN unilateral e aguarda ACK.
-  `dispatch()` é chamado pelo transport para rotear segmentos às filas internas.
+  fragmenta em chunks de `MSS = 4096 bytes` e retransmite indefinidamente até
+  receber ACK (entrega garantida). `receive()` reagrupa fragmentos até
+  `more=False`. `dispatch()` roteia segmentos recebidos para as filas internas
+  corretas (`ack_queue`, `syn_ack_queue`, `fin_queue`, `data_queue`).
+
+  **Handshake de 3 vias (SYN / SYN-ACK / ACK):**
+  - `connect()` (lado ativo): envia SYN e retransmite até receber SYN-ACK.
+    Em seguida envia ACK e a conexão está estabelecida.
+  - `accept()` (lado passivo): consome o SYN da fila, envia SYN-ACK e
+    retransmite até receber o ACK do SYN-ACK.
+
+
+  **Encerramento de 4 vias (FIN / ACK / FIN / ACK):**
+  - `close()` (lado ativo): envia FIN e retransmite até receber ACK. Então
+    aguarda o FIN do peer (já ACKado por `dispatch()`) antes de liberar.
+  - `close()` (lado passivo): `fin_queue` já contém o FIN recebido. Envia seu
+    FIN e retransmite até receber ACK. Ambos os caminhos chamam `on_close()`
+    apenas ao final, mantendo a conexão na tabela do transport durante todo
+    o handshake.
 
 - **`ReliableTransport`** — multiplexador com thread daemon que lê
   continuamente da rede e despacha para a conexão correta pela chave
-  `(remote_vip, remote_port, local_port)`. `connect()` abre uma conexão
-  de saída; `accept()` bloqueia até uma entrada ser detectada.
+  `(remote_vip, remote_port, local_port)`. `connect()` registra a conexão
+  e inicia o handshake ativo; `accept()` bloqueia até um SYN chegar e
+  completa o handshake passivo antes de retornar.
+
+  Segmentos sem conexão registrada são tratados por caso: FIN → re-ACK
+  (ACK anterior pode ter sido perdido); SYN puro → nova conexão enfileirada;
+  qualquer outro → descartado.
+
+**Constantes calibradas para o canal simulado:**
+
+| Constante | Valor | Justificativa |
+|---|---|---|
+| `TIMEOUT` | `1.5s` | `2 × LATENCIA_MAX + 0.5s` — cobre o RTT máximo com margem |
+| `MSS` | `4096 B` | Maior que o comum para tornar o envio de arquivos mais rápido |
+| `DEFAULT_TTL` | `4` | Topologia tem 1 salto. TTL = 4 detecta loops sem ser irrelevante |
 
 `build_transport_layer(name)` monta a pilha completa e retorna o transport já
 ativo. Não aceita o roteador.
@@ -167,12 +196,13 @@ ativo. Não aceita o roteador.
 - **`Server`** — servidor centralizado que aceita conexões de clientes,
   gerencia a lista de usuários online e retransmite mensagens entre pares. Ao
   conectar, cada cliente recebe automaticamente a lista de usuários já online.
-  Suporta **shutdown gracioso**: ao receber `Ctrl+C`, transmite `__SHUTDOWN__`
-  para todos os clientes e aguarda cada um fechar sua conexão (FIN) antes de
-  encerrar, sem descartar mensagens já enfileiradas.
+  Suporta **shutdown gracioso**: ao receber `Ctrl+C`, chama `close()` em cada
+  conexão ativa, disparando o encerramento de 4 vias antes de retornar.
 
 - **`Client`** — conecta ao servidor assim que é iniciado. A UI sobe
-  imediatamente enquanto a conexão TCP é estabelecida em background. Ao receber `__SHUTDOWN__`, fecha a conexão sozinho. Suporta duas interfaces intercambiáveis via protocolo `UI`:
+  imediatamente enquanto a conexão é estabelecida em background via handshake
+  de 3 vias. Ao detectar que o servidor fechou (`receive()` retorna `None`),
+  exibe aviso e encerra. Suporta duas interfaces intercambiáveis via protocolo `UI`:
   - **`ConsoleUI`** — stdin/stdout com comando `/file <caminho>` para envio de
     arquivos.
   - **`GUI`** — interface Tkinter com área de chat, lista de usuários online e
@@ -189,21 +219,22 @@ sistema são notificações internas sem remetente.
 
 ## Instalação
 
-Clone o repositório e instale o pacote em modo editável.
-
-**Com uv (recomendado):**
+Clone o repositório e instale o pacote. O comando correto depende do seu ambiente:
 
 ```bash
-uv sync
-```
+# Dentro de um venv ou com uv (recomendado)
+pip install -e .
 
-**Com pip:**
+# Distros Linux que bloqueiam pip no sistema (Debian, Ubuntu, Arch…)
+# Use uv, que gerencia o venv automaticamente:
+uv run router   # ou alice, bob, server
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+# Alternativa manual com venv:
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
+
+Apenas os comandos `router`, `server`, `alice` e `bob` são instalados.
 
 ## Como executar
 
@@ -212,35 +243,29 @@ Inicie os componentes na seguinte ordem:
 **1. Roteador** (necessário para comunicação entre hosts):
 
 ```bash
-uv run router
-# Com ambiente ativo: router
+router
 ```
 
 **2. Servidor** (centraliza as conexões):
 
 ```bash
-uv run server
-# Com ambiente ativo: server
+server
 ```
 
 **3. Clientes** (Alice e Bob):
 
 ```bash
 # Alice - interface automática (console se TTY disponível)
-uv run alice
-# Com ambiente ativo: alice
+alice
 
 # Alice - forçar interface gráfica
-uv run alice -- --gui
-# Com ambiente ativo: alice --gui
+alice --gui
 
 # Bob - interface automática
-uv run bob
-# Com ambiente ativo: bob
+bob
 
 # Bob - forçar interface gráfica
-uv run bob -- --gui
-# Com ambiente ativo: bob --gui
+bob --gui
 ```
 
 **Comandos no console:**

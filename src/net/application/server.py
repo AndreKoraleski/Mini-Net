@@ -41,7 +41,6 @@ class Server:
         self.clients: dict[str, Connection] = {}
         self.lock = threading.Lock()
         self.shutting_down = False
-        self.all_disconnected = threading.Event()
 
     def run(self) -> None:
         """Aceita conexões e despacha cada uma para uma thread dedicada."""
@@ -75,13 +74,13 @@ class Server:
                 ).start()
 
         except KeyboardInterrupt:
-            logger.info("[CHAT] Shutdown iniciado, notificando clientes…")
+            logger.info("[CHAT] Shutdown iniciado, encerrando conexões…")
             self.shutting_down = True
-            self._broadcast(SystemMessage("__SHUTDOWN__"))
             with self.lock:
-                has_clients = bool(self.clients)
-            if has_clients:
-                self.all_disconnected.wait(timeout=30.0)
+                connections = list(self.clients.values())
+            for conn in connections:
+                with contextlib.suppress(Exception):
+                    conn.close()
             logger.info("[CHAT] Servidor encerrado.")
 
     def _handle(self, connection: Connection, name: str) -> None:
@@ -96,18 +95,6 @@ class Server:
 
                 except ValueError as exc:
                     logger.warning("[CHAT] Mensagem inválida de %s: %s", name, exc)
-                    continue
-
-                # Responde à solicitação de lista de usuários online
-                if (
-                    isinstance(message, SystemMessage)
-                    and message.content == "__REQUEST_ONLINE__"
-                ):
-                    with self.lock:
-                        online_users = [n for n in self.clients if n != name]
-                    if online_users:
-                        online_list = ", ".join(online_users) + " entrou no chat."
-                        connection.send(SystemMessage(online_list).encode())
                     continue
 
                 if isinstance(message, (TextMessage, FileMessage)):
@@ -133,13 +120,10 @@ class Server:
         finally:
             with self.lock:
                 self.clients.pop(name, None)
-                empty = not self.clients
             logger.info("[CHAT] %s desconectou.", name)
             if not self.shutting_down:
                 self._broadcast(SystemMessage(f"{name} saiu do chat."))
-
-            if empty:
-                self.all_disconnected.set()
+                connection.close()
 
     def _broadcast(self, message: SystemMessage, exclude: str | None = None) -> None:
         with self.lock:

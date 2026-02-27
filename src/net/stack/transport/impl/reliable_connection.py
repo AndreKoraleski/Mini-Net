@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import logging
 import queue
+import threading
 import time
 from collections.abc import Callable
 
@@ -16,8 +17,7 @@ from net.stack.transport import TIMEOUT, Connection
 
 logger = logging.getLogger(__name__)
 
-MSS: int = 1024
-MAX_FIN_RETRIES: int = 8
+MSS: int = 4096
 
 
 class ReliableConnection(Connection):
@@ -45,7 +45,98 @@ class ReliableConnection(Connection):
         self.send_sequence = 0
         self.receive_sequence = 0
         self.ack_queue: queue.Queue[Segment] = queue.Queue()
+        self.syn_ack_queue: queue.Queue[Segment] = queue.Queue()
+        self.fin_queue: queue.Queue[int] = queue.Queue()
         self.data_queue: queue.Queue[Segment | None] = queue.Queue()
+        self.connected: bool = False
+        self.closed: bool = False
+        self.close_lock = threading.Lock()
+        self.send_lock = threading.Lock()
+
+    def connect(self) -> None:
+        """Lado ativo do handshake de 3 vias (SYN / SYN-ACK / ACK)."""
+        syn = Segment(
+            seq_num=0,
+            is_ack=False,
+            payload={
+                "src_ip": self.local_address.vip,
+                "src_port": self.local_address.port,
+                "dst_port": self.remote_address.port,
+                "data": "",
+                "syn": True,
+                "more": False,
+            },
+        )
+
+        while True:
+            self.network.send(syn, self.remote_address.vip)
+            logger.debug(
+                "[TRANSPORTE] %s -> %s  SYN enviado.",
+                self.local_address,
+                self.remote_address,
+            )
+            try:
+                self.syn_ack_queue.get(timeout=TIMEOUT)
+                break
+
+            except queue.Empty:
+                logger.warning(
+                    "[TRANSPORTE] %s -> %s  Timeout aguardando SYN-ACK, retransmitindo SYN.",
+                    self.local_address,
+                    self.remote_address,
+                )
+
+        # Envia ACK do SYN-ACK
+        self.connected = True
+        self._send_ack(0)
+        logger.debug(
+            "[TRANSPORTE] %s -> %s  Handshake concluído (ativo).",
+            self.local_address,
+            self.remote_address,
+        )
+
+    def accept(self) -> None:
+        """Lado passivo do handshake de 3 vias.)"""
+        # Consome o SYN que dispatch() colocou em data_queue
+        item = self.data_queue.get()
+        assert item is not None and item.payload.get("syn"), "Esperado SYN inicial"
+
+        syn_ack = Segment(
+            seq_num=0,
+            is_ack=True,
+            payload={
+                "src_ip": self.local_address.vip,
+                "src_port": self.local_address.port,
+                "dst_port": self.remote_address.port,
+                "data": "",
+                "syn": True,
+                "more": False,
+            },
+        )
+
+        while True:
+            self.network.send(syn_ack, self.remote_address.vip)
+            logger.debug(
+                "[TRANSPORTE] %s -> %s  SYN-ACK enviado.",
+                self.local_address,
+                self.remote_address,
+            )
+            try:
+                self.ack_queue.get(timeout=TIMEOUT)
+                break
+
+            except queue.Empty:
+                logger.warning(
+                    "[TRANSPORTE] %s -> %s  Timeout aguardando ACK do SYN-ACK, retransmitindo.",
+                    self.local_address,
+                    self.remote_address,
+                )
+
+        self.connected = True
+        logger.debug(
+            "[TRANSPORTE] %s  Handshake concluído (passivo).",
+            self.local_address,
+        )
 
     def send(self, data: bytes) -> None:
         """Envia dados de forma confiável, fragmentando em MSS e aguardando ACKs.
@@ -61,9 +152,10 @@ class ReliableConnection(Connection):
         )
         chunks = [data[i : i + MSS] for i in range(0, max(1, len(data)), MSS)]
 
-        for i, chunk in enumerate(chunks):
-            more: bool = i < len(chunks) - 1
-            self._send_chunk(chunk, more=more)
+        with self.send_lock:
+            for i, chunk in enumerate(chunks):
+                more: bool = i < len(chunks) - 1
+                self._send_chunk(chunk, more=more)
 
     def receive(self) -> bytes | None:
         """Recebe dados de forma confiável, reagrupando fragmentos.
@@ -81,6 +173,7 @@ class ReliableConnection(Connection):
 
                 if not segment.payload.get("more", False):
                     break
+
         except EOFError:
             return None
 
@@ -92,7 +185,14 @@ class ReliableConnection(Connection):
         return bytes(buffer)
 
     def close(self) -> None:
-        """Encerra a conexão enviando um FIN e aguardando o ACK."""
+        """Encerra a conexão com o handshake de 4 passos (FIN/ACK/FIN/ACK)."""
+        with self.close_lock:
+            if self.closed:
+                return
+            self.closed = True
+
+        passive = not self.fin_queue.empty()
+
         fin = Segment(
             seq_num=self.send_sequence,
             is_ack=False,
@@ -106,7 +206,8 @@ class ReliableConnection(Connection):
             },
         )
 
-        for attempt in range(1, MAX_FIN_RETRIES + 1):
+        # Enviar FIN e aguardar ACK
+        while True:
             self.network.send(fin, self.remote_address.vip)
             logger.debug(
                 "[TRANSPORTE] %s -> %s  FIN enviado. (seq=%d)",
@@ -114,39 +215,44 @@ class ReliableConnection(Connection):
                 self.remote_address,
                 self.send_sequence,
             )
-            deadline = time.time() + TIMEOUT
-
-            while time.time() < deadline:
-                try:
-                    ack = self.ack_queue.get(timeout=deadline - time.time())
-
-                except queue.Empty:
-                    break
-
+            try:
+                ack = self.ack_queue.get(timeout=TIMEOUT)
                 if ack.sequence_number == self.send_sequence:
                     logger.debug(
-                        "[TRANSPORTE] %s -> %s  Conexão encerrada.",
+                        "[TRANSPORTE] %s -> %s  ACK do FIN recebido.",
                         self.local_address,
                         self.remote_address,
                     )
-                    if self.on_close is not None:
-                        self.on_close()
-                    return
+                    break
+            except queue.Empty:
+                logger.warning(
+                    "[TRANSPORTE] %s -> %s  Timeout aguardando ACK do FIN, retransmitindo.",
+                    self.local_address,
+                    self.remote_address,
+                )
 
-            logger.warning(
-                "[TRANSPORTE] %s -> %s  Timeout aguardando ACK do FIN. (%d/%d)",
+        if passive:
+            logger.debug(
+                "[TRANSPORTE] %s -> %s  Conexão encerrada (fechamento passivo).",
                 self.local_address,
                 self.remote_address,
-                attempt,
-                MAX_FIN_RETRIES,
             )
+            if self.on_close is not None:
+                self.on_close()
+            return
 
-        logger.warning(
-            "[TRANSPORTE] %s -> %s  FIN sem ACK após %d tentativas.",
+        # Aguardar FIN do peer
+        logger.debug(
+            "[TRANSPORTE] %s  Aguardando FIN do peer (FIN_WAIT_2)…",
+            self.local_address,
+        )
+        self.fin_queue.get()  # Bloqueia até o FIN chegar
+        logger.debug(
+            "[TRANSPORTE] %s -> %s  Conexão encerrada (4-way FIN).",
             self.local_address,
             self.remote_address,
-            MAX_FIN_RETRIES,
         )
+
         if self.on_close is not None:
             self.on_close()
 
@@ -234,8 +340,13 @@ class ReliableConnection(Connection):
     def dispatch(self, segment: Segment) -> None:
         """Encaminha um segmento recebido para a fila correta desta conexão.
 
-        Chamado pelo ReliableTransport para cada segmento destinado a esta conexão.
-        FINs do lado remoto são respondidos com ACK e disparam o callback on_close.
+        Roteamento:
+        - SYN puro (is_ack=False, syn=True)  -> data_queue    (consumido por accept())
+        - SYN-ACK  (is_ack=True,  syn=True)  -> syn_ack_queue (consumido por connect())
+        - ACK puro de SYN (is_ack=True, syn=True sem dados)  -> ack_queue (handshake passivo)
+        - FIN      (fin=True)                -> ACK imediato + fin_queue + data_queue=None
+        - ACK de dados/FIN                   -> ack_queue
+        - Dados                              -> data_queue
 
         Args:
             segment (Segment): O segmento a ser encaminhado.
@@ -243,12 +354,39 @@ class ReliableConnection(Connection):
         if segment.payload.get("fin"):
             self._send_ack(segment.sequence_number)
             logger.debug(
-                "[TRANSPORTE] %s  FIN recebido. Encerrando conexão.",
+                "[TRANSPORTE] %s  FIN recebido. ACK enviado.",
                 self.local_address,
             )
+            self.fin_queue.put(segment.sequence_number)
             self.data_queue.put(None)
-            if self.on_close is not None:
-                self.on_close()
+            return
+
+        if segment.payload.get("syn"):
+            if segment.is_ack:
+                if self.connected:
+                    logger.debug(
+                        "[TRANSPORTE] %s  SYN-ACK retransmitido, reenviando ACK.",
+                        self.local_address,
+                    )
+                    self._send_ack(0)
+                else:
+                    logger.debug(
+                        "[TRANSPORTE] %s  SYN-ACK recebido.",
+                        self.local_address,
+                    )
+                    self.syn_ack_queue.put(segment)
+            else:
+                if self.connected:
+                    logger.debug(
+                        "[TRANSPORTE] %s  SYN duplicado descartado (já conectado).",
+                        self.local_address,
+                    )
+                else:
+                    logger.debug(
+                        "[TRANSPORTE] %s  SYN recebido.",
+                        self.local_address,
+                    )
+                    self.data_queue.put(segment)
             return
 
         if segment.is_ack:

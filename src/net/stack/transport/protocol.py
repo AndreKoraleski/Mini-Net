@@ -5,9 +5,10 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+from net.base.protocol import LATENCIA_MAX as MAX_DELAY
 from net.model import VirtualAddress
 
-TIMEOUT: float = 2.0
+TIMEOUT: float = 2 * MAX_DELAY + 0.5
 
 
 @runtime_checkable
