@@ -164,6 +164,7 @@ def build_physical_layer(name: str) -> UDPSimulated:
     _, address, _, _ = _get_host(name)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((str(address.ip), int(address.port)))
+    sock.settimeout(0.5)
     return UDPSimulated(sock, MAC_TABLE)
 
 

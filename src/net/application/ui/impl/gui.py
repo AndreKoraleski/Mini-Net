@@ -128,11 +128,19 @@ class GUI:
     def read_input(self) -> str | Path | None:
         """Bloqueia a thread do `ChatClient` até o usuário interagir.
 
+        Usa polling com timeout curto para que `KeyboardInterrupt` possa
+        ser entregue ao thread principal mesmo no Windows.
+
         Returns:
             Uma `str` com o texto a enviar, um `Path` com o arquivo a
             transferir, ou `None` para encerrar a sessão.
         """
-        return self.input_queue.get()
+        while True:
+            try:
+                return self.input_queue.get(timeout=0.05)
+            
+            except queue.Empty:
+                continue
 
     # --- Ciclo de Vida ---
 

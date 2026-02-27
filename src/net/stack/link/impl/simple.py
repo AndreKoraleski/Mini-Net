@@ -84,6 +84,9 @@ class SimpleLink(Link):
         """
         data = self.physical.receive()
 
+        if not data:
+            return None
+
         frame_dict, valid = Frame.deserializar(data)
 
         if frame_dict is None:

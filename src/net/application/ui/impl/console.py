@@ -78,7 +78,7 @@ class ConsoleUI:
         try:
             line = input()
 
-        except KeyboardInterrupt, EOFError:
+        except (KeyboardInterrupt, EOFError):
             print("\nEncerrando...")
             return None
 

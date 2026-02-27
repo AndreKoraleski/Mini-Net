@@ -163,10 +163,10 @@ inferiores.
 
 
   **Encerramento de 4 vias (FIN / ACK / FIN / ACK):**
-  - `close()` (lado ativo): envia FIN e retransmite até receber ACK. Então
+  - `close()` (lado ativo): envia FIN e retransmite até receber ACK (máximo `MAX_FIN_RETRIES = 8` tentativas). Então
     aguarda o FIN do peer (já ACKado por `dispatch()`) antes de liberar.
   - `close()` (lado passivo): `fin_queue` já contém o FIN recebido. Envia seu
-    FIN e retransmite até receber ACK. Ambos os caminhos chamam `on_close()`
+    FIN e retransmite até receber ACK (máximo `MAX_FIN_RETRIES = 8` tentativas). Ambos os caminhos chamam `on_close()`
     apenas ao final, mantendo a conexão na tabela do transport durante todo
     o handshake.
 
@@ -199,12 +199,17 @@ ativo. Não aceita o roteador.
   gerencia a lista de usuários online e retransmite mensagens entre pares. Ao
   conectar, cada cliente recebe automaticamente a lista de usuários já online.
   Suporta **shutdown gracioso**: ao receber `Ctrl+C`, chama `close()` em cada
-  conexão ativa, disparando o encerramento de 4 vias antes de retornar.
+  conexão ativa, disparando o encerramento de 4 vias. O handshake é limitado
+  por `MAX_FIN_RETRIES = 8` tentativas na camada de transporte, garantindo
+  término mesmo que o peer esteja inacessível.
 
 - **`Client`** — conecta ao servidor assim que é iniciado. A UI sobe
   imediatamente enquanto a conexão é estabelecida em background via handshake
   de 3 vias. Ao detectar que o servidor fechou (`receive()` retorna `None`),
-  exibe aviso e encerra. Suporta duas interfaces intercambiáveis via protocolo `UI`:
+  exibe aviso e encerra. Suporta **shutdown gracioso**: `Ctrl+C` no terminal ou
+  fechar a janela disparam o encerramento de 4 vias, limitado por
+  `MAX_FIN_RETRIES = 8` tentativas na camada de transporte. Suporta duas
+  interfaces intercambiáveis via protocolo `UI`:
   - **`ConsoleUI`** — stdin/stdout com comando `/file <caminho>` para envio de
     arquivos.
   - **`GUI`** — interface Tkinter com área de chat, lista de usuários online e
@@ -284,3 +289,46 @@ bob --gui
 - Barra de status mostra conexão
 
 Todos os arquivos recebidos são salvos em `downloads/<destinatário>/`.
+
+## Erros Conhecidos
+
+### Bug de UI — primeira mensagem não é enviada
+
+A primeira mensagem digitada por um cliente não é enviada. O comportamento correto é aguardar até que o texto de *"entrou no chat"* esteja visível para **ambos os usuários** antes de tentar enviar qualquer mensagem.
+
+![Bug GUI — primeira mensagem não é enviada](images/gui_bug.png)
+
+*Ainda assim, é possível que a primeira mensagem de um cliente não seja enviada. Fluxo normaliza após enviá-la para a UI no entanto, com mensagens subsequentes sendo encaminhadas normalmente.*
+
+---
+
+### Erro ao fechar — Tkinter em thread errada
+
+Ao encerrar os clientes, pode ocorrer o seguinte erro (não é determinístico):
+
+```
+Exception ignored while calling deallocator <function Variable.__del__ at 0x...>:
+Traceback (most recent call last):
+  File "...\tkinter\__init__.py", line 416, in __del__
+    if self._tk.getboolean(self._tk.call("info", "exists", self._name)):
+RuntimeError: main thread is not in main loop
+Tcl_AsyncDelete: async handler deleted by the wrong thread
+```
+
+~~Como não há limite de tentativas (*max retries*) na camada de transporte, se o erro ocorrer o servidor pode ficar preso tentando garantir a entrega do encerramento.~~
+
+**Recomendação:** fechar os componentes **na mesma ordem em que foram iniciados** (ex.: se Alice foi iniciada antes de Bob, feche Alice primeiro), pela GUI ou pelo terminal (`Ctrl+C`), e **aguardar o encerramento completo de um cliente antes de iniciar o do próximo** — fechar ambos simultaneamente gera uma cascata de erros no handshake de encerramento.
+
+> **Nota:** originalmente o encerramento aguardava indefinidamente o handshake de 4 vias. Após testes em outro sistema operacional retornarem erros que não haviam sido encontrados no ambiente de desenvolvimento original, optou-se por introduzir um limite de `MAX_FIN_RETRIES = 8` tentativas na camada de transporte antes de desistir do encerramento gracioso.
+
+---
+
+### Desconexão abrupta do servidor quebra o roteador
+
+Se o servidor for desconectado de forma abrupta (ex.: `Ctrl+C` no terminal do servidor), o roteador para de funcionar corretamente e passa a não conseguir ser encerrado via `Ctrl+C`, exibindo um erro do tipo:
+
+```
+WinError: conexão quebrada pelo host remoto
+```
+
+**Recomendação:** encerrar sempre pelo fluxo normal (GUI ou `Ctrl+C` no cliente primeiro, depois no servidor).

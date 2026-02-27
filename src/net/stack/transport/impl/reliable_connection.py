@@ -18,6 +18,7 @@ from net.stack.transport import TIMEOUT, Connection
 logger = logging.getLogger(__name__)
 
 MSS: int = 4096
+MAX_FIN_RETRIES: int = 8
 
 
 class ReliableConnection(Connection):
@@ -184,6 +185,32 @@ class ReliableConnection(Connection):
         )
         return bytes(buffer)
 
+    def abort(self) -> None:
+        """Encerra a conexão imediatamente, sem handshake, desbloqueando threads em espera."""
+        with self.close_lock:
+            if self.closed:
+                return
+            self.closed = True
+
+        self.data_queue.put(None)
+        self.ack_queue.put_nowait(
+            type(
+                "_Abort",
+                (),
+                {"sequence_number": self.send_sequence},
+            )()
+        )
+        self.fin_queue.put(-1)
+
+        if self.on_close is not None:
+            self.on_close()
+
+        logger.debug(
+            "[TRANSPORTE] %s -> %s  Conexão abortada.",
+            self.local_address,
+            self.remote_address,
+        )
+
     def close(self) -> None:
         """Encerra a conexão com o handshake de 4 passos (FIN/ACK/FIN/ACK)."""
         with self.close_lock:
@@ -206,14 +233,16 @@ class ReliableConnection(Connection):
             },
         )
 
-        # Enviar FIN e aguardar ACK
-        while True:
+        # Enviar FIN e aguardar ACK (até MAX_FIN_RETRIES tentativas)
+        for attempt in range(1, MAX_FIN_RETRIES + 1):
             self.network.send(fin, self.remote_address.vip)
             logger.debug(
-                "[TRANSPORTE] %s -> %s  FIN enviado. (seq=%d)",
+                "[TRANSPORTE] %s -> %s  FIN enviado. (seq=%d, tentativa=%d/%d)",
                 self.local_address,
                 self.remote_address,
                 self.send_sequence,
+                attempt,
+                MAX_FIN_RETRIES,
             )
             try:
                 ack = self.ack_queue.get(timeout=TIMEOUT)
@@ -225,11 +254,18 @@ class ReliableConnection(Connection):
                     )
                     break
             except queue.Empty:
-                logger.warning(
-                    "[TRANSPORTE] %s -> %s  Timeout aguardando ACK do FIN, retransmitindo.",
-                    self.local_address,
-                    self.remote_address,
-                )
+                if attempt == MAX_FIN_RETRIES:
+                    logger.warning(
+                        "[TRANSPORTE] %s -> %s  Limite de retransmissões do FIN atingido, desistindo.",
+                        self.local_address,
+                        self.remote_address,
+                    )
+                else:
+                    logger.warning(
+                        "[TRANSPORTE] %s -> %s  Timeout aguardando ACK do FIN, retransmitindo.",
+                        self.local_address,
+                        self.remote_address,
+                    )
 
         if passive:
             logger.debug(

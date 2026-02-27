@@ -78,9 +78,9 @@ class Server:
             self.shutting_down = True
             with self.lock:
                 connections = list(self.clients.values())
-            for conn in connections:
+            for connection in connections:
                 with contextlib.suppress(Exception):
-                    conn.close()
+                    connection.close()
             logger.info("[CHAT] Servidor encerrado.")
 
     def _handle(self, connection: Connection, name: str) -> None:

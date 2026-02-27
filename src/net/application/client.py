@@ -61,44 +61,55 @@ class Client:
 
         threading.Thread(target=_do_connect, daemon=True).start()
 
-        while True:
-            inp = self.ui.read_input()
+        try:
+            while True:
+                inp = self.ui.read_input()
 
-            if inp is None:
-                break
+                if inp is None:
+                    break
 
-            if self.connection is None:
-                continue
+                if self.connection is None:
+                    continue
 
-            if isinstance(inp, Path):
-                self.connection.send(
-                    FileMessage(
-                        sender=self.name,
-                        recipient=self.other,
-                        name=inp.name,
-                        mime="application/octet-stream",
-                        data=inp.read_bytes(),
-                    ).encode()
-                )
+                if isinstance(inp, Path):
+                    self.connection.send(
+                        FileMessage(
+                            sender=self.name,
+                            recipient=self.other,
+                            name=inp.name,
+                            mime="application/octet-stream",
+                            data=inp.read_bytes(),
+                        ).encode()
+                    )
 
-            elif inp.strip():
-                self.connection.send(
-                    TextMessage(
-                        sender=self.name,
-                        recipient=self.other,
-                        content=inp.strip(),
-                    ).encode()
-                )
+                elif inp.strip():
+                    self.connection.send(
+                        TextMessage(
+                            sender=self.name,
+                            recipient=self.other,
+                            content=inp.strip(),
+                        ).encode()
+                    )
 
-        if self.connection is not None:
+        except (KeyboardInterrupt, EOFError):
+            logger.info("[CHAT] Interrompido, encerrando conexão…")
+
+        finally:
             self._close_connection()
 
     def _close_connection(self) -> None:
         """Fecha a conexão de forma idempotente e thread-safe."""
         with self.close_lock:
-            if self.connection is not None:
-                self.connection.close()
-                self.connection = None
+            connection = self.connection
+            self.connection = None
+
+        if connection is None:
+            return
+
+        try:
+            connection.close()
+        except Exception:
+            pass
 
     def _receive_loop(self) -> None:
         assert self.connection is not None

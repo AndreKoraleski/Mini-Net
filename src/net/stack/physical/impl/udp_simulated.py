@@ -100,6 +100,9 @@ class UDPSimulated(Physical):
             )
             return data
 
+        except TimeoutError:
+            return b""
+
         except Exception as e:
             logger.error("[FISICA] Erro ao receber dados: %s", e)
             return b""
